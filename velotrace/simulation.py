@@ -1,9 +1,11 @@
-"""simulation_utils module"""
 import numpy as np
-import warnings
 from anndata import AnnData
 from scvelo.core import invert, SplicingDynamics
-from scipy.stats import truncnorm
+import warnings
+import torch
+import pandas as pd
+import random
+from scipy.sparse import issparse
 
 def get_top_gene_indices_per_cell(adata, top_genes_per_cell):
     #########################################################
@@ -202,10 +204,6 @@ def simulation(
         #     )
         return ut, st
 
-
-
-
-
     def simulate_gillespie(alpha, beta, gamma):
         # update rules:
         # transcription (u+1,s), splicing (u-1,s+1), degradation (u,s-1), nothing (u,s)
@@ -252,8 +250,8 @@ def simulation(
             return [array] if n_vars is None else [array] * n_vars
 
     # switching time point obtained as fraction of t_max rounded down
-    a, b = 0, 1  # 截断范围
-    mu, sigma = 0.5, 0.2  # 均值和标准差
+    a, b = 0.3, 0.7  # 截断范围
+    mu, sigma = 0.5, 0.05  # 均值和标准差
     # 转换参数以适应truncnorm函数
     lower, upper = (a - mu) / sigma, (b - mu) / sigma
     samples_t_ = truncnorm.rvs(lower, upper, loc=mu, scale=sigma, size=n_vars)
@@ -289,9 +287,13 @@ def simulation(
         np.random.seed(random_seed + i)  # Ensure reproducibility with seed offset
         t_len = len(t)
         if t_len > 1:  # Only permute if tau has multiple elements
-            index = np.random.randint(0, t_len // 3)  # Random index < len(tau)/2
-            t_rand = np.concatenate((t[index:], t[:index]))  # Rearrange tau
-        
+            index = np.random.randint(0, t_len // 4)  # Random index < len(tau)/4
+            end_index = np.random.randint(t_len * 7 // 10, t_len * 4 // 5)
+            t_rand = np.linspace(t[index], t[end_index], n_obs)
+            # t_rand = np.concatenate((t[index:end_index], t[:index], t[end_index:]))  # Rearrange tau
+            # t_rand = np.concatenate((t[index:], t[:index]))
+
+
         tau, alpha_vec, u0_vec, s0_vec = vectorize(
             t_rand, t_[i], alpha_i, beta_i, gamma_i, alpha_=alpha_, u0=0, s0=0
         )
@@ -314,13 +316,15 @@ def simulation(
                 noise_level[i],
                 umi_depth
             )
-            for j in range(index):
-                S[n_obs-index+j, i] = S[n_obs-index-1, i]
-                U[n_obs-index+j, i] = U[n_obs-index-1, i]
+            # shuffle_len = index + t_len - end_index
+            # shuffle_len = index
+            # for j in range(shuffle_len):
+            #     S[n_obs-shuffle_len+j, i] = S[n_obs-shuffle_len-1, i]
+            #     U[n_obs-shuffle_len+j, i] = U[n_obs-shuffle_len-1, i]
     # print(S[:,:n_vars])
     mrna = U+S
     mrna_counts = np.sum(np.sum(mrna))
-    cell_prob = np.sum(mrna, axis=1)/mrna_counts
+    # cell_prob = np.sum(mrna, axis=1)/mrna_counts
     if is_list(umi_depth) and len(umi_depth) == n_obs:
         # umi_per_cell = np.array(umi_depth) * n_obs * cell_prob
         umi_per_cell = np.array(umi_depth)
@@ -337,10 +341,10 @@ def simulation(
         # print(st_cell)
 
         alpha_us = np.concatenate([ut_cell, st_cell])
-        size_per_hk = mrna_counts * 10 / n_obs / n_housekeeping
-
+        # size_per_hk = (mrna_counts * 10 / n_obs - np.sum(alpha_us))/ n_housekeeping
+        size_per_hk = mrna_counts * 9 * 9/n_obs / n_housekeeping
         alpha_c = np.ones(n_housekeeping) * size_per_hk
-        
+
         # print(alpha_c)
         alpha_total = np.concatenate([alpha_us, alpha_c])
         alpha_all = alpha_all + list(alpha_us)
@@ -375,32 +379,128 @@ def simulation(
     layers_true = {"unspliced": U, "spliced": S}
     layers_obs = {"unspliced": U_noise, "spliced": S_noise}
 
-    return AnnData(S + U, obs,var=var, layers=layers_true), AnnData(S_noise + U_noise, obs,var=var, layers=layers_obs), alpha_all
+    return AnnData(S + U, obs,var=var, layers=layers_true), AnnData(S_noise + U_noise, obs,var=var, layers=layers_obs)
+
+# calculate true velocity from ground truth data    
+def cal_true_velocity(adata_true, t_max=25):
+    n_obs = adata_true.shape[0]
+    delta_t = t_max / n_obs
+    delta_t = round(delta_t, 4)
+
+    alpha_data = np.zeros((adata_true.shape[0], adata_true.shape[1]))
+    for i in range(adata_true.shape[0]):
+        for j in range(adata_true.shape[1]):
+            alpha_data[i, j] = adata_true.X[i, j]
+
+    cell_velo_dx = np.zeros_like(alpha_data)
+    for i in range(0, alpha_data.shape[0]):
+        if i == 0:
+            cell_velo_dx[i] = (alpha_data[1] - alpha_data[0]) /delta_t
+        else:
+            cell_velo_dx[i] = (alpha_data[i] - alpha_data[i - 1]) / delta_t
+    return cell_velo_dx
 
 
-# ---- Definition: enforce_strict_monotonicity ----
+def write_fit_layers_from_pars(adata):
+    to_dense = lambda x: x.A if hasattr(x, "A") else np.asarray(x)
+    if "fit_t" not in adata.layers:
+        raise KeyError("缺少 adata.layers['fit_t']，请先运行 recover_dynamics。")
+    fit_t = to_dense(adata.layers["fit_t"])
+    n_cells, n_genes = fit_t.shape
 
-'''
-def enforce_strict_monotonicity(time):
-    # time = torch.tensor(time, dtype=torch.float64)
-    n = len(time)
-    t = time
-    i = 1
-    while i < n:
-        if t[i] <= t[i-1]:
-            start = i - 1
-            while i < n and t[i] == t[start]:
-                i += 1
-            end = i-1
-            
-            t_s = t[start-1] if start > 0 else 0
-            t_l = t[end + 1] if end < n-1 else 1
+    fit_u = np.full((n_cells, n_genes), np.nan, dtype=np.float32)
+    fit_s = np.full_like(fit_u, np.nan)
 
-            num_vals = end - start + 2
-            step = (t_l -t_s) / num_vals
-            
-            for j in range(start, end+1):
-                time[j] = t_s + (j - start + 1)* step
-        i += 1  
-    return time
-'''
+    has_scaling = "fit_scaling" in adata.var
+    has_u0 = "fit_u0" in adata.var
+    has_s0 = "fit_s0" in adata.var
+
+    for g, gene in enumerate(adata.var_names):
+        sub = adata[:, gene]
+        alpha_i, beta_i, gamma_i, scaling_i, t_switch = get_vars(sub, key="fit")
+        alpha_i = float(np.atleast_1d(alpha_i)[0])
+        beta_i = float(np.atleast_1d(beta_i)[0])
+        gamma_i = float(np.atleast_1d(gamma_i)[0])
+        scaling_i = float(np.atleast_1d(scaling_i)[0]) if has_scaling else 1.0
+        t_switch = float(np.atleast_1d(t_switch)[0])
+
+        u0_off = float(adata.var["fit_u0"].iat[g]) if has_u0 else 0.0
+        s0_off = float(adata.var["fit_s0"].iat[g]) if has_s0 else 0.0
+
+        t_vec = fit_t[:, g]
+        if np.all(~np.isfinite(t_vec)):
+            continue
+
+        tau, alpha_vec, u0_vec, s0_vec = vectorize(
+            t_vec, t_switch, alpha_i, beta_i, gamma_i,
+            alpha_=0.0, u0=0.0, s0=0.0, sorted=False
+        )
+        ut, st = SplicingDynamics(
+            alpha=alpha_vec, beta=beta_i, gamma=gamma_i,
+            initial_state=[u0_vec, s0_vec]
+        ).get_solution(tau, stacked=False)
+
+        fit_u[:, g] = ut * scaling_i + u0_off
+        fit_s[:, g] = st + s0_off
+
+    adata.layers["fit_u"] = fit_u
+    adata.layers["fit_s"] = fit_s
+    
+# write_fit_layers_from_pars(adata)
+
+def align_gene_and_cell_time(adata):
+    """
+    将细胞按照 pseudotime 排序后，对每个基因的时间（fit_t）进行排序，
+    并同步调整 fit_u 和 fit_s。
+
+    参数:
+        adata (AnnData): 包含 pseudotime 和 fit_t/fit_u/fit_s 的 AnnData 对象。
+
+    返回:
+        AnnData: 经过重新排列后的 AnnData 对象。
+    """
+    # 确保 pseudotime 存在
+    if 'velocity_pseudotime' not in adata.obs:
+        raise ValueError("adata.obs 中缺少 'velocity_pseudotime' 列。")
+
+    # 确保 fit_t 存在
+    if 'fit_t' not in adata.layers:
+        raise ValueError("adata.layers 中缺少 'fit_t' 层。")
+
+    # 将 pseudotime 转换为 numpy 数组
+    pseudotime = adata.obs['velocity_pseudotime'].to_numpy()
+
+    # 将细胞按照 pseudotime 排序
+    sorted_cell_indices = np.argsort(pseudotime)
+    adata = adata[sorted_cell_indices].copy()
+
+    # 获取 fit_t, fit_u, fit_s
+    fit_t = adata.layers['fit_t']
+    fit_u = adata.layers['fit_u']
+    fit_s = adata.layers['fit_s']
+
+    # 转换为稠密矩阵（如果是稀疏矩阵）
+    fit_t = fit_t.A if issparse(fit_t) else np.asarray(fit_t)
+    fit_u = fit_u.A if issparse(fit_u) else np.asarray(fit_u)
+    fit_s = fit_s.A if issparse(fit_s) else np.asarray(fit_s)
+
+    # 初始化新的 fit_u 和 fit_s
+    aligned_fit_u = np.zeros_like(fit_u)
+    aligned_fit_s = np.zeros_like(fit_s)
+
+    # 对每个基因（列）按照 fit_t 排序
+    for gene_idx in range(fit_t.shape[1]):
+        # 获取当前基因的时间排序索引
+        sorted_time_indices = np.argsort(fit_t[:, gene_idx])
+
+        # 按照时间排序 fit_u 和 fit_s
+        aligned_fit_u[:, gene_idx] = fit_u[sorted_time_indices, gene_idx]
+        aligned_fit_s[:, gene_idx] = fit_s[sorted_time_indices, gene_idx]
+
+    # 将重新排列的结果写回 adata
+    adata.layers['fit_u_aligned'] = aligned_fit_u
+    adata.layers['fit_s_aligned'] = aligned_fit_s
+
+    return adata
+
+# adata = align_gene_and_cell_time(adata)

@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="cellode",
+    name="velotrace",
     version="0.1.0",
     #description="A small package extracted from a notebook for pseudotime/trajectory utilities.",
     #author="Your Name",
@@ -16,6 +16,7 @@ setup(
         "sctour",
         "scvelo",
         "scikit-learn",
+        "scipy",
         "torch",
         "torchdiffeq",
     ],

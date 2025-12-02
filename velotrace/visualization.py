@@ -1,4 +1,3 @@
-"""visualization module"""
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -6,7 +5,7 @@ import pandas as pd
 import random
 import os
 from sklearn.decomposition import PCA
-from cellode.train_utils import ODEFunc, ODEBlock
+from .model import ODEFunc, ODEBlock
 from torch import nn
 
 # ---- Definition: cal_cosine ----
