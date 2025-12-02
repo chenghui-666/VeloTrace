@@ -137,13 +137,14 @@ def calculate_odevelo_cell(odefunc, odeblock, t: torch.Tensor, x_modified: torch
 # PCA Visualization Functions
 # ------------------------------------------------------------------
 
-def plot_velocity_on_pca(adata_cell, velo, samp_indices, t, step=1.0, 
+def plot_velocity_on_pca(adata, velo, t, step=1.0, 
                          title=None, uniform_arrow=False, save_path=None):
     """
     Perform PCA and project velocity onto the PC space.
     """
+    samp_indices = adata.uns['sample_list'] if 'sample_list' in adata.uns else np.random.choice(adata.shape[0], size=100, replace=False)
     pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(adata_cell)
+    X_pca = pca.fit_transform(adata.X)
     
     # Project velocity: V_pca = V * W.T (Mathematically equivalent to (X + V)W - XW)
     V_pca = np.dot(velo * step, pca.components_.T)
@@ -174,7 +175,7 @@ def plot_velocity_on_pca(adata_cell, velo, samp_indices, t, step=1.0,
         
     plt.show()
 
-def plot_sctour_velocity_on_pca2(adata, samp_indices, t, step=1.0, title=None, save_path=None):
+def plot_sctour_velocity_on_pca2(adata, t, step=1.0, title=None, save_path=None):
     """
     Project 5D velocity (X_VF) onto 2D PCA (X_pca2) via linear mapping from X_TNODE.
     """
@@ -192,6 +193,7 @@ def plot_sctour_velocity_on_pca2(adata, samp_indices, t, step=1.0, title=None, s
     plt.scatter(X_emb[:, 0], X_emb[:, 1], c=t, cmap='YlGnBu_r', 
                 alpha=0.35, s=1000, marker='.', lw=0)
 
+    samp_indices = adata.uns['sample_list'] if 'sample_list' in adata.uns else np.random.choice(adata.shape[0], size=100, replace=False)
     colors = t[samp_indices] if len(t) == len(X_emb) else t
     plt.scatter(X_emb[samp_indices, 0], X_emb[samp_indices, 1], c=colors, cmap='YlGnBu_r',
                 alpha=1, s=1000, marker='.', edgecolor='black', linewidth=2.5)
