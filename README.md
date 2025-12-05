@@ -1,5 +1,5 @@
-# VeloTrace
-VeloTrace is a Python package for RNA velocity trajectory inference.
+# VeloTrace Reconciles Divergent Velocity and Trajectory in Single-cell Transcriptomics with Deep Neural ODE
+$$ VeloTrace $$ is a Python package for RNA velocity trajectory inference.
 ## Installation
 Conda（推荐）
 GPU：conda env create -f environment.yml
