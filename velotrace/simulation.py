@@ -9,37 +9,38 @@ from scipy.sparse import issparse
 
 def get_top_gene_indices_per_cell(adata, top_genes_per_cell):
     #########################################################
-    # 此函数暂时没有用
+    # Currently unused helper, kept for reference
     #########################################################
     """
-    获取每个细胞中 unspliced 表达量最高的前 top_genes_per_cell 个基因的列索引。
-    
+    Return the column indices of the top ``top_genes_per_cell`` genes with the
+    highest unspliced expression for every cell.
+
     Parameters:
-        adata (AnnData): 包含单细胞数据的 AnnData 对象，要求 `adata.layers["unspliced"]` 已存在。
-        top_genes_per_cell (int): 每个细胞中保留的基因数量。
-    
+        adata (AnnData): AnnData object that must provide ``adata.layers["unspliced"]``.
+        top_genes_per_cell (int): Number of genes to keep per cell.
+
     Returns:
-        list of list: 每个子列表是对应细胞的 top_genes_per_cell 个基因的列索引。
+        list of list: Each nested list stores the column indices of the selected genes.
     """
-    # 检查是否存在 unspliced 数据
+    # Ensure unspliced data is available
     if "unspliced" not in adata.layers:
-        raise ValueError("adata.layers['unspliced'] 不存在，请确保数据中包含 unspliced 层。")
-    
-    # 获取 unspliced 矩阵
+        raise ValueError("adata.layers['unspliced'] is missing; the dataset must include it.")
+
+    # Retrieve the unspliced matrix
     unspliced_matrix = adata.layers["unspliced"]
-    
-    # 用于存储每个细胞对应的 top 基因列索引
+
+    # Storage for the selected indices per cell
     top_gene_indices_per_cell = []
-    
-    # 遍历每个细胞
+
+    # Iterate through each cell
     for i in range(unspliced_matrix.shape[0]):
-        # 获取当前细胞的 unspliced 表达量
+        # Collect the unspliced expression vector of the cell
         cell_unspliced = unspliced_matrix[i, :]
-        
-        # 找到该细胞中 unspliced 表达量最高的基因索引
+
+        # Identify indices of the most expressed genes
         top_indices = np.argsort(cell_unspliced)[::-1][:top_genes_per_cell]
-        
-        # 添加到结果列表
+
+        # Record the selection
         top_gene_indices_per_cell.append(top_indices.tolist())
     
     return top_gene_indices_per_cell
@@ -51,9 +52,9 @@ def reduce_matrix_by_top_genes(label_matrix, top_gene_indices_per_cell):
     num_cells = label_matrix.shape[0]
     reduced_matrix = np.zeros((num_cells, len(top_gene_indices_per_cell[0])))
     
-    # 遍历每个细胞
+    # Iterate over each cell
     for i, top_indices in enumerate(top_gene_indices_per_cell):
-        # 提取当前细胞对应的 top 基因表达量
+        # Extract the chosen genes for the current cell
         reduced_matrix[i, :] = label_matrix[i, top_indices]
     
     return reduced_matrix
@@ -250,9 +251,9 @@ def simulation(
             return [array] if n_vars is None else [array] * n_vars
 
     # switching time point obtained as fraction of t_max rounded down
-    a, b = 0.3, 0.7  # 截断范围
-    mu, sigma = 0.5, 0.05  # 均值和标准差
-    # 转换参数以适应truncnorm函数
+    a, b = 0.3, 0.7  # Truncation range
+    mu, sigma = 0.5, 0.05  # Mean and standard deviation
+    # Convert into the parameters expected by truncnorm
     lower, upper = (a - mu) / sigma, (b - mu) / sigma
     samples_t_ = truncnorm.rvs(lower, upper, loc=mu, scale=sigma, size=n_vars)
     switches = (
@@ -331,7 +332,7 @@ def simulation(
     else:
         # umi_per_cell = umi_depth * n_obs * cell_prob
         umi_per_cell = umi_depth
-    for cell in range(n_obs):  # 遍历每个细胞
+    for cell in range(n_obs):  # Iterate over every cell
         if is_list(umi_depth) and len(umi_depth) == n_obs:
             total_umi_cell = umi_per_cell[cell]
         else:
@@ -404,7 +405,7 @@ def cal_true_velocity(adata_true, t_max=25):
 def write_fit_layers_from_pars(adata):
     to_dense = lambda x: x.A if hasattr(x, "A") else np.asarray(x)
     if "fit_t" not in adata.layers:
-        raise KeyError("缺少 adata.layers['fit_t']，请先运行 recover_dynamics。")
+        raise KeyError("adata.layers['fit_t'] is missing; run recover_dynamics first.")
     fit_t = to_dense(adata.layers["fit_t"])
     n_cells, n_genes = fit_t.shape
 
@@ -450,54 +451,54 @@ def write_fit_layers_from_pars(adata):
 
 def align_gene_and_cell_time(adata):
     """
-    将细胞按照 pseudotime 排序后，对每个基因的时间（fit_t）进行排序，
-    并同步调整 fit_u 和 fit_s。
+    Sort cells by pseudotime, reorder each gene's ``fit_t`` accordingly,
+    and keep ``fit_u``/``fit_s`` aligned with the new ordering.
 
-    参数:
-        adata (AnnData): 包含 pseudotime 和 fit_t/fit_u/fit_s 的 AnnData 对象。
+    Parameters:
+        adata (AnnData): Dataset containing pseudotime and the fit layers.
 
-    返回:
-        AnnData: 经过重新排列后的 AnnData 对象。
+    Returns:
+        AnnData: A copy with time-aligned ``fit_u`` and ``fit_s`` layers.
     """
-    # 确保 pseudotime 存在
+    # Ensure pseudotime exists
     if 'velocity_pseudotime' not in adata.obs:
-        raise ValueError("adata.obs 中缺少 'velocity_pseudotime' 列。")
+        raise ValueError("'velocity_pseudotime' is missing from adata.obs.")
 
-    # 确保 fit_t 存在
+    # Ensure fit_t exists
     if 'fit_t' not in adata.layers:
-        raise ValueError("adata.layers 中缺少 'fit_t' 层。")
+        raise ValueError("'fit_t' is missing from adata.layers.")
 
-    # 将 pseudotime 转换为 numpy 数组
+    # Convert pseudotime to a NumPy array
     pseudotime = adata.obs['velocity_pseudotime'].to_numpy()
 
-    # 将细胞按照 pseudotime 排序
+    # Sort cells by pseudotime
     sorted_cell_indices = np.argsort(pseudotime)
     adata = adata[sorted_cell_indices].copy()
 
-    # 获取 fit_t, fit_u, fit_s
+    # Retrieve fit_t, fit_u, fit_s
     fit_t = adata.layers['fit_t']
     fit_u = adata.layers['fit_u']
     fit_s = adata.layers['fit_s']
 
-    # 转换为稠密矩阵（如果是稀疏矩阵）
+    # Convert to dense matrices if necessary
     fit_t = fit_t.A if issparse(fit_t) else np.asarray(fit_t)
     fit_u = fit_u.A if issparse(fit_u) else np.asarray(fit_u)
     fit_s = fit_s.A if issparse(fit_s) else np.asarray(fit_s)
 
-    # 初始化新的 fit_u 和 fit_s
+    # Initialize aligned outputs
     aligned_fit_u = np.zeros_like(fit_u)
     aligned_fit_s = np.zeros_like(fit_s)
 
-    # 对每个基因（列）按照 fit_t 排序
+    # For each gene, reorder fit_u/fit_s based on fit_t
     for gene_idx in range(fit_t.shape[1]):
-        # 获取当前基因的时间排序索引
+        # Determine the time-based ordering for the gene
         sorted_time_indices = np.argsort(fit_t[:, gene_idx])
 
-        # 按照时间排序 fit_u 和 fit_s
+        # Apply the ordering to fit_u and fit_s
         aligned_fit_u[:, gene_idx] = fit_u[sorted_time_indices, gene_idx]
         aligned_fit_s[:, gene_idx] = fit_s[sorted_time_indices, gene_idx]
 
-    # 将重新排列的结果写回 adata
+    # Store the aligned layers back into AnnData
     adata.layers['fit_u_aligned'] = aligned_fit_u
     adata.layers['fit_s_aligned'] = aligned_fit_s
 

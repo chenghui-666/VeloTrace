@@ -45,7 +45,7 @@ class LinearWeightedMSE(nn.Module):
         squared_diff = torch.log1p((input - target) ** 2 + 1).sum(dim=-1)
         
         batch_size = input.size(0)
-        # 线性从1.0衰减到min_weight
+        # Linearly decay weights from 1.0 down to ``min_weight``
         weights = torch.linspace(1.0, self.min_weight, steps=batch_size, device=input.device)
         
         weighted_loss = weights * squared_diff

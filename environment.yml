@@ -17,7 +17,8 @@ dependencies:
   - pytorch::pytorch>=2.1
   - pytorch::torchvision>=0.15
   - pytorch::torchaudio>=2.1
-  # 若需要 GPU，选择对应 CUDA 版本（示例为 CUDA 11.8）；CPU 用户可移除以下两行
+  # If GPU is required, select the corresponding CUDA version (example uses CUDA 11.8)
+  # CPU users can remove the following two lines
   - nvidia::cuda-cudnn>=9.0
   - nvidia::cuda-runtime=11.8
   - pip:

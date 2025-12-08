@@ -17,39 +17,39 @@ def update_usxv(adata, loaded_t, window_size=7, lr=0.1):
     adata_new.layers['unspliced'] = adata.layers['unspliced'].copy()
     adata_new.layers['spliced'] = adata.layers['spliced'].copy()
 
-    # 将数据按照时间重新排列（注意保证一致性）
+    # Reorder the data by time while keeping aligned metadata
     order = np.argsort(adata_new.obs["velocity_pseudotime"].to_numpy())
     adata_new = adata_new[order].copy()
     print(adata_new.obs["velocity_pseudotime"])
 
-    # 设置参数
-    window_size = window_size  # 滑动窗口大小（包括中心细胞）
-    half_window = window_size // 2  # 每边取3个邻居（总共7个点）
-    learning_rate = lr  # 学习率
+    # Configuration
+    window_size = window_size  # Sliding-window size (includes the center cell)
+    half_window = window_size // 2  # Number of neighbors to each side (e.g., 3 for a size of 7)
+    learning_rate = lr  # Step size for the local averaging update
 
-    # 获取原始u和s（处理稀疏矩阵情况）
+    # Fetch original u and s layers, handling sparse matrices transparently
     u = adata_new.layers['unspliced'] if issparse(adata_new.layers['unspliced']) else np.array(adata.layers['unspliced'])
     s = adata_new.layers['spliced'] if issparse(adata_new.layers['spliced']) else np.array(adata.layers['spliced'])
 
-    # 初始化更新后的u和s（直接复制原始值）
+    # Initialize updated copies of u and s
     u_updated = u.copy()
     s_updated = s.copy()
 
-    # 遍历所有细胞，但跳过前 half_window 和最后 half_window 个点
+    # Iterate over all cells, skipping the boundary region that lacks full neighborhoods
     for i in range(half_window, len(adata_new) - half_window):
-        # 确定窗口范围（i是中心点，左右各取 half_window 个邻居）
+        # Define the window with ``i`` as the center and ``half_window`` neighbors on each side
         start = i - half_window
-        end = i + half_window + 1  # +1 因为 Python 切片是左闭右开
+        end = i + half_window + 1  # +1 because Python slices are half-open
         
-        # 计算窗口内细胞的平均值
+        # Compute neighborhood means
         u_window_mean = np.mean(u[start:end], axis=0)
         s_window_mean = np.mean(s[start:end], axis=0)
         
-        # 应用更新规则：u_new = u_old + lr * (neighborhood_mean - u_old)
+        # Apply the update rule: move toward the neighborhood mean at the chosen learning rate
         u_updated[i] = u[i] + learning_rate * (u_window_mean - u[i])
         s_updated[i] = s[i] + learning_rate * (s_window_mean - s[i])
 
-    # 将更新后的值存回adata
+    # Write the updated values back to the AnnData object
     adata_new.layers['unspliced'] = u_updated
     adata_new.layers['spliced'] = s_updated
     adata_new.X = u_updated + s_updated

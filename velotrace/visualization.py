@@ -78,18 +78,18 @@ def plot_scatter_with_ode(adata_cell, odefunc, odeblock, y0, t, num_blocks, num_
 
     for i in range(0,all_ode_cell.shape[0]):
         plt.arrow(
-            PCA_embedding[i, 0], PCA_embedding[i, 1],  # 起点
-            PCA_ode_velo[i, 0] /50, PCA_ode_velo[i, 1]/50,  # 变化速率
-            head_width=0.2, head_length=0.1 * v_scale, fc='black', ec='black'  # 箭头属性
+            PCA_embedding[i, 0], PCA_embedding[i, 1],  # Arrow origin
+            PCA_ode_velo[i, 0] /50, PCA_ode_velo[i, 1]/50,  # Projected velocity components
+            head_width=0.2, head_length=0.1 * v_scale, fc='black', ec='black'  # Arrow styling
         )
         
     if adata_velo:
         cell_start = all_ode_cell.shape[0]
         for i in random_indices:
             plt.arrow(
-                PCA_embedding[cell_start+i, 0], PCA_embedding[cell_start+i, 1],  # 起点
-                PCA_cell_velo[i, 0]/50 , PCA_cell_velo[i, 1]/50,  # 变化速率
-                head_width=0.2, head_length=0.1 * v_scale, fc='red', ec='red'  # 箭头属性
+                PCA_embedding[cell_start+i, 0], PCA_embedding[cell_start+i, 1],  # Arrow origin
+                PCA_cell_velo[i, 0]/50 , PCA_cell_velo[i, 1]/50,  # Projected velocity components
+                head_width=0.2, head_length=0.1 * v_scale, fc='red', ec='red'  # Arrow styling
             )
     if save_path:
         plt.savefig(save_path, dpi=300)

@@ -23,12 +23,12 @@ def update_odefunc(
     max_epochs=None,
     window=10,
     patience=20,
-    save_interval=10,  # 新增参数：保存间隔
+    save_interval=10,  # Newly added checkpoint interval
     min_grad_norm=1e-3,
     lambda_reg=1e-4,
-    save_dir="./checkpoints",  # 新增参数：保存路径
+    save_dir="./checkpoints",  # Newly added checkpoint directory
 ):
-    # 创建保存目录
+    # Ensure the checkpoint directory exists
     import os
     import copy
     os.makedirs(save_dir, exist_ok=True)
@@ -41,7 +41,7 @@ def update_odefunc(
     epochs_no_improve = 0
     epoch = 0
 
-    # 记录全程最优checkpoint
+    # Track the best checkpoint across the entire run
     global_best_loss = float("inf")
     best_ckpt = None
 
@@ -84,7 +84,7 @@ def update_odefunc(
         recon_loss_list.append(recon_loss_total)
         param_reg_list.append(param_reg_total)
 
-        # 更新全局最优checkpoint
+        # Update the global best checkpoint
         if loss < global_best_loss:
             global_best_loss = loss
             best_ckpt = {
@@ -95,7 +95,7 @@ def update_odefunc(
                 'loss': loss,
             }
 
-        # 周期性保存
+        # Periodically persist checkpoints
         if epoch % save_interval == 0:
             checkpoint_path = os.path.join(save_dir, f"checkpoint_epoch_{epoch}.pth")
             torch.save({
@@ -146,7 +146,7 @@ def update_odefunc(
             print(f"Reach max_epochs={max_epochs}, stop training")
             break
 
-    # 保存全程最优为 final.pth；若为空则保存最后一轮
+    # Persist the best checkpoint to final.pth; fall back to the last epoch if needed
     final_path = os.path.join(save_dir, "final.pth")
     if best_ckpt is None:
         best_ckpt = {
@@ -188,8 +188,8 @@ def update_t_only(
     import os
     os.makedirs(save_dir, exist_ok=True)
 
-    # 固定网络与 x，仅优化 t
-    x = trajectory_embeddings.clone().detach().to(device)  # 不需要梯度
+    # Freeze network weights and x; only optimize t
+    x = trajectory_embeddings.clone().detach().to(device)  # No gradients required
     t_optim = t.clone().detach().requires_grad_(True).to(device)
     velocity_values = velocity_values.to(device)
     optimizer = torch.optim.Adam([t_optim], lr=lr)
@@ -209,7 +209,7 @@ def update_t_only(
         optimizer.zero_grad()
         epoch_loss = 0.0
 
-        # 多次采样累积梯度
+        # Accumulate gradients over several stochastic samples
         repeat = 5
         for _ in range(repeat):
             x_batch, t_batch, v_batch = create_batch(
@@ -220,8 +220,8 @@ def update_t_only(
                 sample_fraction=0.4,
             )
             y0 = x_batch[0].unsqueeze(0)
-            pred_y = odeblock(y0, t_batch)     # 仅通过 t 传播梯度
-            ode_velo = odefunc(0, x_batch)     # 与 t 无关，用于正则对齐
+            pred_y = odeblock(y0, t_batch)     # Gradients flow only through t
+            ode_velo = odefunc(0, x_batch)     # Independent of t, used for the regularizer
 
             recon_loss = criterion(pred_y.squeeze(), x_batch)
             reg_loss = (1 - F.cosine_similarity(ode_velo, v_batch, dim=0).mean()) * 10
@@ -234,14 +234,14 @@ def update_t_only(
 
         loss_history.append(epoch_loss)
 
-        # 提前停止
+        # Early stopping logic
         if epoch_loss + min_delta < best_loss:
             best_loss = epoch_loss
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
 
-        # 仅保存 t
+        # Save the optimized t only
         if epoch % save_interval == 0 or epoch == max_epochs:
             t_path = os.path.join(save_dir, f"t_epoch_{epoch}.pt")
             torch.save(t_optim.detach().cpu(), t_path)
